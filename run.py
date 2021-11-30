@@ -149,6 +149,10 @@ def test(model, ema, args, data):
     #return loss, results['exact_match'], results['f1']
 
     print("Количество ответов с меткой True", np.sum(predictions))
+    print("\ngt:\n")
+    print(gt)
+    print("\npredictions:\n")
+    print(predictions)
     return loss, accuracy_score(gt, predictions)
 
 
