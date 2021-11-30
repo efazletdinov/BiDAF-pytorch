@@ -11,6 +11,9 @@ from model.data import SQuAD
 from model.ema import EMA
 import evaluate
 
+from sklearn.metrics import accuracy_score
+import numpy as np
+
 
 def train(args, data):
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -21,14 +24,18 @@ def train(args, data):
         if param.requires_grad:
             ema.register(name, param.data)
     parameters = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = optim.Adadelta(parameters, lr=args.learning_rate)
-    criterion = nn.CrossEntropyLoss()
+    #optimizer = optim.Adadelta(parameters, lr=args.learning_rate)
+    optimizer = optim.Adamax(parameters, weight_decay=args.weight_decay)
+    #criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
 
     writer = SummaryWriter(log_dir='runs/' + args.model_time)
 
     model.train()
+    best_model = copy.deepcopy(model)
     loss, last_epoch = 0, -1
-    max_dev_exact, max_dev_f1 = -1, -1
+    #max_dev_exact, max_dev_f1 = -1, -1
+    max_dev_accuracy = 0
 
     iterator = data.train_iter
     for i, batch in enumerate(iterator):
@@ -39,12 +46,15 @@ def train(args, data):
             print('epoch:', present_epoch + 1)
         last_epoch = present_epoch
 
-        p1, p2 = model(batch)
+        #p1, p2 = model(batch)
+        logits = model(batch)
 
         optimizer.zero_grad()
-        batch_loss = criterion(p1, batch.s_idx) + criterion(p2, batch.e_idx)
+        # batch_loss = criterion(p1, batch.s_idx) + criterion(p2, batch.e_idx)
+        batch_loss = criterion(logits.view(-1), batch.answer.view(-1).type(torch.cuda.FloatTensor))
         loss += batch_loss.item()
         batch_loss.backward()
+        nn.utils.clip_grad_norm_(parameters, args.grad_clipping)
         optimizer.step()
 
         for name, param in model.named_parameters():
@@ -52,35 +62,46 @@ def train(args, data):
                 ema.update(name, param.data)
 
         if (i + 1) % args.print_freq == 0:
-            dev_loss, dev_exact, dev_f1 = test(model, ema, args, data)
+            #dev_loss, dev_exact, dev_f1 = test(model, ema, args, data)
+            dev_loss, dev_accuracy = test(model, ema, args, data)
             c = (i + 1) // args.print_freq
 
             writer.add_scalar('loss/train', loss, c)
             writer.add_scalar('loss/dev', dev_loss, c)
-            writer.add_scalar('exact_match/dev', dev_exact, c)
-            writer.add_scalar('f1/dev', dev_f1, c)
-            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f}'
-                  f' / dev EM: {dev_exact:.3f} / dev F1: {dev_f1:.3f}')
+            #writer.add_scalar('exact_match/dev', dev_exact, c)
+            #writer.add_scalar('f1/dev', dev_f1, c)
+            writer.add_scalar('f1/dev', dev_accuracy, c)
 
-            if dev_f1 > max_dev_f1:
-                max_dev_f1 = dev_f1
-                max_dev_exact = dev_exact
+            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f}'
+                  #f' / dev EM: {dev_exact:.3f} / dev F1: {dev_f1:.3f}')
+                  f' /  dev accuracy: {dev_accuracy:.3f}')
+
+            #if dev_f1 > max_dev_f1:
+            #    max_dev_f1 = dev_f1
+            #    max_dev_exact = dev_exact
+            if dev_accuracy > max_dev_accuracy:
+                max_dev_accuracy = dev_accuracy
                 best_model = copy.deepcopy(model)
 
             loss = 0
             model.train()
 
     writer.close()
-    print(f'max dev EM: {max_dev_exact:.3f} / max dev F1: {max_dev_f1:.3f}')
+    #print(f'max dev EM: {max_dev_exact:.3f} / max dev F1: {max_dev_f1:.3f}')
+    print(f'max dev accuracy: {max_dev_accuracy:.3f}')
 
     return best_model
 
 
 def test(model, ema, args, data):
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
-    criterion = nn.CrossEntropyLoss()
+    #device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    #criterion = nn.CrossEntropyLoss()
+    device = torch.device(f"cuda:0" if torch.cuda.is_available() else "cpu")
+    criterion = nn.BCEWithLogitsLoss()
     loss = 0
-    answers = dict()
+    #answers = dict()
+    predictions = []
+    gt = []
     model.eval()
 
     backup_params = EMA(0)
@@ -91,34 +112,44 @@ def test(model, ema, args, data):
 
     with torch.set_grad_enabled(False):
         for batch in iter(data.dev_iter):
-            p1, p2 = model(batch)
-            batch_loss = criterion(p1, batch.s_idx) + criterion(p2, batch.e_idx)
+            #p1, p2 = model(batch)
+            #batch_loss = criterion(p1, batch.s_idx) + criterion(p2, batch.e_idx)
+            logits = model(batch)
+            batch_loss = criterion(logits, batch.answer.view(-1, 1).type(torch.cuda.FloatTensor))
             loss += batch_loss.item()
 
             # (batch, c_len, c_len)
-            batch_size, c_len = p1.size()
-            ls = nn.LogSoftmax(dim=1)
-            mask = (torch.ones(c_len, c_len) * float('-inf')).to(device).tril(-1).unsqueeze(0).expand(batch_size, -1, -1)
-            score = (ls(p1).unsqueeze(2) + ls(p2).unsqueeze(1)) + mask
-            score, s_idx = score.max(dim=1)
-            score, e_idx = score.max(dim=1)
-            s_idx = torch.gather(s_idx, 1, e_idx.view(-1, 1)).squeeze()
+            #batch_size, c_len = p1.size()
+            #ls = nn.LogSoftmax(dim=1)
+            #mask = (torch.ones(c_len, c_len) * float('-inf')).to(device).tril(-1).unsqueeze(0).expand(batch_size, -1, -1)
+            #score = (ls(p1).unsqueeze(2) + ls(p2).unsqueeze(1)) + mask
+            #score, s_idx = score.max(dim=1)
+            #score, e_idx = score.max(dim=1)
+            #s_idx = torch.gather(s_idx, 1, e_idx.view(-1, 1)).squeeze()
 
-            for i in range(batch_size):
-                id = batch.id[i]
-                answer = batch.c_word[0][i][s_idx[i]:e_idx[i]+1]
-                answer = ' '.join([data.WORD.vocab.itos[idx] for idx in answer])
-                answers[id] = answer
+            #for i in range(batch_size):
+            #    id = batch.id[i]
+            #    answer = batch.c_word[0][i][s_idx[i]:e_idx[i]+1]
+            #    answer = ' '.join([data.WORD.vocab.itos[idx] for idx in answer])
+            #    answers[id] = answer
+
+            batch_size, c_len = logits.size()
+            probs = torch.sigmoid(logits).data.cpu().numpy()
+            predictions.extend(np.where(probs >= 0.5, 1, 0))
+            gt.extend(batch.answer)
 
         for name, param in model.named_parameters():
             if param.requires_grad:
                 param.data.copy_(backup_params.get(name))
 
-    with open(args.prediction_file, 'w', encoding='utf-8') as f:
-        print(json.dumps(answers), file=f)
+    #with open(args.prediction_file, 'w', encoding='utf-8') as f:
+    #    print(json.dumps(answers), file=f)
 
-    results = evaluate.main(args)
-    return loss, results['exact_match'], results['f1']
+    #results = evaluate.main(args)
+    #return loss, results['exact_match'], results['f1']
+
+    print("Количество ответов с меткой True", np.sum(predictions))
+    return loss, accuracy_score(gt, predictions)
 
 
 def main():
