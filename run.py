@@ -150,10 +150,10 @@ def test(model, ema, args, data):
 
     print("Количество ответов с меткой True", np.sum(predictions))
     print("\ngt:\n")
-    print(gt.cpu().detach().numpy())
+    print(list(map(lambda x: x.cpu().detach().numpy(), gt)))
     print("\npredictions:\n")
     print(predictions)
-    return loss, accuracy_score(gt.cpu().detach().numpy(), predictions)
+    return loss, accuracy_score(list(map(lambda x: x.cpu().detach().numpy(), gt)), predictions)
 
 
 def main():
