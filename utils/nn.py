@@ -45,12 +45,16 @@ class LSTM(nn.Module):
         x_sorted = x.index_select(dim=0, index=x_idx)
         _, x_ori_idx = torch.sort(x_idx)
 
-        x_packed = nn.utils.rnn.pack_padded_sequence(x_sorted, x_len_sorted, batch_first=True)
+        #x_packed = nn.utils.rnn.pack_padded_sequence(x_sorted, x_len_sorted, batch_first=True)
+        x_packed = hotfix_pack_padded_sequence(
+            x_sorted, x_len_sorted, batch_first=True
+        )
         x_packed, (h, c) = self.rnn(x_packed)
 
         x = nn.utils.rnn.pad_packed_sequence(x_packed, batch_first=True)[0]
         x = x.index_select(dim=0, index=x_ori_idx)
-        h = h.permute(1, 0, 2).contiguous().view(-1, h.size(0) * h.size(2)).squeeze()
+        #h = h.permute(1, 0, 2).contiguous().view(-1, h.size(0) * h.size(2)).squeeze()
+        hidden = torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1)
         h = h.index_select(dim=0, index=x_ori_idx)
 
         return x, h
