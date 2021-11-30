@@ -150,7 +150,7 @@ def test(model, ema, args, data):
 
     print("Количество ответов с меткой True", np.sum(predictions))
     print("\ngt:\n")
-    print(gt)
+    print(gt.cpu().detach().numpy())
     print("\npredictions:\n")
     print(predictions)
     return loss, accuracy_score(gt, predictions)
