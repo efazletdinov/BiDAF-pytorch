@@ -20,14 +20,22 @@ class LSTM(nn.Module):
             nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}'))
             nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}'), val=0)
             nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}'), val=0)
-            getattr(self.rnn, f'bias_hh_l{i}').chunk(4)[1].fill_(1)
+            #getattr(self.rnn, f'bias_hh_l{i}').chunk(4)[1].fill_(1)
+            bias = getattr(self.rnn, f"bias_hh_l{i}").detach()
+            bias.chunk(4)[1].fill_(1)
+            with torch.no_grad():
+                setattr(self.rnn, f"bias_hh_l{i}", nn.Parameter(bias))
 
             if self.rnn.bidirectional:
                 nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}_reverse'))
                 nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}_reverse'))
                 nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}_reverse'), val=0)
                 nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}_reverse'), val=0)
-                getattr(self.rnn, f'bias_hh_l{i}_reverse').chunk(4)[1].fill_(1)
+                #getattr(self.rnn, f'bias_hh_l{i}_reverse').chunk(4)[1].fill_(1)
+                bias = getattr(self.rnn, f"bias_hh_l{i}_reverse").detach()
+                bias.chunk(4)[1].fill_(1)
+                with torch.no_grad():
+                    setattr(self.rnn, f"bias_hh_l{i}_reverse", nn.Parameter(bias))
 
     def forward(self, x):
         x, x_len = x
