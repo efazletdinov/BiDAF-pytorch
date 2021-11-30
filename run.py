@@ -153,7 +153,7 @@ def test(model, ema, args, data):
     print(gt.cpu().detach().numpy())
     print("\npredictions:\n")
     print(predictions)
-    return loss, accuracy_score(gt, predictions)
+    return loss, accuracy_score(gt.cpu().detach().numpy(), predictions)
 
 
 def main():
