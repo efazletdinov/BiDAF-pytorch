@@ -70,7 +70,7 @@ class LSTM(nn.Module):
         x = nn.utils.rnn.pad_packed_sequence(x_packed, batch_first=True)[0]
         x = x.index_select(dim=0, index=x_ori_idx)
         #h = h.permute(1, 0, 2).contiguous().view(-1, h.size(0) * h.size(2)).squeeze()
-        hidden = torch.cat((hidden[-2, :, :], hidden[-1, :, :]), dim=1)
+        h = torch.cat((h[-2, :, :], h[-1, :, :]), dim=1)
         h = h.index_select(dim=0, index=x_ori_idx)
 
         return x, h
